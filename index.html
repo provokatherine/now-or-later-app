@@ -15,6 +15,7 @@
     --accent: var(--tg-theme-button-color, #2481cc);
     --accent-text: var(--tg-theme-button-text-color, #fff);
     --head: var(--tg-theme-section-header-text-color, #6d6d72);
+    --danger: var(--tg-theme-destructive-text-color, #ff3b30);
     --safe-bottom: max(var(--tg-safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px));
     --ms: 200ms;
   }
@@ -27,6 +28,8 @@
     color: var(--text);
     font: 17px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     overflow-wrap: anywhere;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
   }
   #banner {
     position: sticky;
@@ -71,7 +74,9 @@
     letter-spacing: .02em;
     color: var(--head);
   }
-  h2 .count { color: var(--hint); margin-left: 6px; }
+  h2 .count { display: inline-block; color: var(--hint); margin-left: 6px; }
+  .count.bump { animation: bump 300ms ease-out; }
+  @keyframes bump { 40% { transform: scale(1.2); color: var(--accent); } }
   ul {
     list-style: none;
     margin: 0;
@@ -81,18 +86,44 @@
     overflow: hidden;
   }
   li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    padding: 0 4px 0 12px;
+    position: relative;
     overflow: hidden;
+    background: var(--card);
+    touch-action: pan-y;
     transition: max-height var(--ms) ease-out, opacity var(--ms) ease-out, transform var(--ms) ease-out;
   }
   li + li { border-top: 1px solid var(--sep); }
   li.collapse { max-height: 0 !important; opacity: 0; border-top-color: transparent; }
   li.flash { animation: flash 1s ease-out; }
-  @keyframes flash { from { background: var(--bg); } to { background: transparent; } }
+  @keyframes flash { from { background: var(--bg); } to { background: var(--card); } }
+  li.now { background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+  [data-scheme="dark"] li.now { background: color-mix(in srgb, var(--accent) 16%, var(--card)); }
+  li.now.arrive { animation: arrive var(--ms) ease-out var(--ms) both; }
+  @keyframes arrive { from { background: var(--card); } }
+  li.now .box { border: 2px solid var(--accent); }
+  .slide {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 0 4px 0 12px;
+    background: inherit;
+    transition: transform var(--ms) cubic-bezier(.2, .8, .2, 1);
+  }
+  .binbg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    background: var(--danger);
+    color: #fff;
+    visibility: hidden;
+  }
+  li.swiping .binbg, li.open .binbg { visibility: visible; }
+  .bin { width: 22px; height: 22px; margin-right: 29px; }
+  .sr { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .box {
     position: relative;
     flex: none;
@@ -111,7 +142,6 @@
   }
   .box::before { content: ""; position: absolute; inset: -11px; }
   li.checked .box { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .lead { flex: none; color: var(--accent); font-size: 13px; }
   .body { flex: 1 1 0; min-width: 0; padding: 10px 0; }
   .body.pick { cursor: pointer; }
   .was { display: block; font-size: 13px; color: var(--hint); margin-top: 2px; }
@@ -126,8 +156,9 @@
     background: transparent;
     color: var(--accent);
   }
-  button.x { color: var(--hint); font-size: 17px; padding: 0 12px; }
+  button:active { opacity: .5; }
   button:disabled { opacity: .4; }
+  button[data-action="later"] { color: color-mix(in srgb, var(--text) 62%, var(--card)); }
   .empty, .outside { color: var(--hint); padding: 12px 16px; margin: 0; }
   .outside { padding-top: 24px; }
   #toast {
@@ -162,7 +193,8 @@
 <div class="add" id="add"><textarea id="field" rows="1" placeholder="Add tasks, one per line" enterkeyhint="enter" autocomplete="off"></textarea></div>
 <main id="list"></main>
 <div id="toast" hidden><span class="msg" id="msg"></span><button id="undo" type="button"><svg class="ring" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7"></circle></svg>Undo</button></div>
-<template id="buttons"><button data-action="today">Today</button><button data-action="later">Later</button><button class="x" data-action="never" aria-label="Delete">✕</button><button data-action="not_same">Not the same</button></template>
+<template id="buttons"><button data-action="today">Today</button><button data-action="later">Later</button><button class="sr" data-action="never">Delete</button><button data-action="not_same">Not the same</button></template>
+<template id="bintpl"><div class="binbg" aria-hidden="true"><svg class="bin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></div></template>
 <script>
   const tg = window.Telegram?.WebApp;
   const initData = tg?.initData ?? "";
@@ -174,10 +206,17 @@
   const msg = document.getElementById("msg");
   const undoBtn = document.getElementById("undo");
   const buttons = document.getElementById("buttons").content;
+  const bintpl = document.getElementById("bintpl").content;
   // Filled by renderPage: the function's API, absolute when the page is hosted elsewhere.
   const api = "https://yonytrycngydbxxnblqv.supabase.co/functions/v1/today-bot/app/api";
   const MS = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200;
-  const UNDO_TEXT = { done: "Done", never: "Deleted", later: "Moved to Later", today: "Moved to Today", first: "Moved to first" };
+  const HOLD = 300; // the filled checkbox stays this long before a done row goes (fixed, a second tap cancels)
+  // Swipe to delete
+  const REVEAL = 80; // px of bin shown by an open row
+  const OPEN_AT = 40; // px of drag that opens the row on release
+  const LOCK = 10; // px of movement that decides between a swipe and a scroll
+  const COMMIT = 0.55; // share of the row width past which a release deletes
+  const EDGE = 20; // px at the left screen edge left to the system back gesture
 
   let tasks = [];
   let loaded = false;
@@ -196,6 +235,7 @@
     if (!h) return;
     if (kind === "success" || kind === "warning" || kind === "error") h.notificationOccurred(kind);
     else if (kind === "select") h.selectionChanged();
+    else if (kind === "medium") h.impactOccurred("medium");
     else h.impactOccurred("light");
   }
 
@@ -302,21 +342,23 @@
     return buttons.querySelector('[data-action="' + action + '"]').cloneNode(true);
   }
 
-  function row(task, actions, lead, pick) {
+  function row(task, actions, now, pick) {
     const li = document.createElement("li");
     li.dataset.id = task.id;
+    if (now) {
+      li.className = "now";
+      li.setAttribute("aria-current", "true");
+    }
+    li.append(bintpl.cloneNode(true));
+    const slide = document.createElement("div");
+    slide.className = "slide";
+    li.append(slide);
     const box = document.createElement("button");
     box.className = "box";
     box.dataset.action = "done";
     box.setAttribute("aria-label", "Done");
     box.textContent = "✓";
-    li.append(box);
-    if (lead) {
-      const l = document.createElement("span");
-      l.className = "lead";
-      l.textContent = "▶";
-      li.append(l);
-    }
+    slide.append(box);
     const body = document.createElement("span");
     body.className = pick ? "body pick" : "body";
     body.dataset.action = pick ? "first" : "";
@@ -329,20 +371,21 @@
       was.append(button("not_same"));
       body.append(was);
     }
-    li.append(body);
-    for (const a of actions) li.append(button(a));
+    slide.append(body);
+    for (const a of actions) slide.append(button(a));
     return li;
   }
 
-  function group(title, items, actions, lead) {
+  function group(title, items, actions, ordered) {
     const section = document.createElement("section");
     const h2 = document.createElement("h2");
+    h2.dataset.title = title;
     const count = document.createElement("span");
     count.className = "count";
     count.textContent = loaded ? String(items.length) : "";
     h2.append(title, count);
     const ul = document.createElement("ul");
-    items.forEach((t, i) => ul.append(row(t, actions, lead && i === 0, lead && i !== 0)));
+    items.forEach((t, i) => ul.append(row(t, actions, ordered && i === 0, ordered && i !== 0)));
     section.append(h2);
     if (items.length > 0) section.append(ul);
     return section;
@@ -353,6 +396,15 @@
       group("Today", todayTasks(), ["later", "never"], true),
       group("Inbox", inboxTasks(), ["today", "never"], false),
     );
+  }
+
+  // Pulses the count in a list header: the row went there.
+  function bump(title) {
+    const count = list.querySelector('h2[data-title="' + title + '"] .count');
+    if (!count) return;
+    count.classList.remove("bump");
+    void count.offsetWidth;
+    count.classList.add("bump");
   }
 
   function rowOf(id) {
@@ -393,6 +445,7 @@
       li.style.transition = "";
       li.style.transform = "";
     }
+    list.querySelector("li.now")?.classList.add("arrive");
   }
 
   // --- Actions ------------------------------------------------------------------
@@ -411,44 +464,48 @@
     tasks = tasks.map((t) => (t.id === id ? { ...t, ...change } : t));
   }
 
+  // Every action changes the page at once. Only delete offers Undo; the others show where the
+  // row went (tick and collapse, count pulse, slide).
   async function act(action, task, li) {
-    const prev = { id: task.id, status: task.status, todayOrder: task.todayOrder };
     let body;
     if (action === "done") {
       haptic("success");
       li.classList.add("checked");
-      await wait(MS * 1.5);
+      await wait(HOLD);
+      if (!li.classList.contains("checked")) return; // a second tap cancelled it
       await collapse(li);
       tasks = tasks.filter((t) => t.id !== task.id);
       body = { action: "done", id: task.id };
-      undo = { ...prev, expect: "done" };
     } else if (action === "never") {
-      haptic("light");
+      haptic("warning");
+      if (openLi === li) openLi = null;
+      li.classList.add("swiping");
+      setX(li, -li.offsetWidth, true);
+      await wait(MS * 0.75);
       await collapse(li);
       tasks = tasks.filter((t) => t.id !== task.id);
       body = { action: "never", id: task.id };
-      undo = { ...prev, expect: "never" };
+      undo = { id: task.id, status: task.status, todayOrder: task.todayOrder, expect: "never" };
     } else if (action === "later") {
       haptic("light");
       await collapse(li);
       patch(task.id, { status: "later", todayOrder: null });
       body = { action: "move", id: task.id, to: "later" };
-      undo = { ...prev, expect: "later" };
     } else if (action === "today") {
       haptic("light");
       await collapse(li);
       patch(task.id, { status: "today", todayOrder: nextOrder() });
       body = { action: "move", id: task.id, to: "today" };
-      undo = { ...prev, expect: "today" };
     } else if (action === "first") {
       haptic("select");
       patch(task.id, { todayOrder: firstOrder() });
       body = { action: "first", id: task.id };
-      undo = { ...prev, expect: "today" };
     } else return;
     if (action === "first") renderMoved();
     else render();
-    showToast(UNDO_TEXT[action], true);
+    if (action === "never") showToast("Deleted", true);
+    if (action === "later") bump("Inbox");
+    if (action === "today") { bump("Today"); flash(task.id, false); }
     try {
       const answer = await send(body);
       if (busy === 0) { tasks = answer.tasks; render(); }
@@ -477,9 +534,132 @@
     const id = li.dataset.id;
     const task = tasks.find((t) => t.id === id);
     if (!task || li.classList.contains("collapse")) return;
-    if (el.dataset.action === "not_same") notSame(id);
+    if (el.dataset.action === "done" && li.classList.contains("checked")) {
+      li.classList.remove("checked"); // not done after all
+      haptic("light");
+    } else if (el.dataset.action === "not_same") notSame(id);
     else act(el.dataset.action, task, li);
   });
+
+  // --- Swipe to delete ------------------------------------------------------------
+  // A drag to the left on a row reveals the bin; a tap on it deletes. A drag past COMMIT
+  // of the row width deletes on release. The first LOCK px decide: a swipe within 30° of
+  // horizontal, otherwise the page scrolls. A swipe is never a tap.
+
+  let drag = null; // { id, li, x0, y0, lock, wasOpen, x, opened, committed }
+  let openLi = null; // the row showing its bin, at most one
+  let suppressClick = false;
+
+  function setX(li, x, animate) {
+    const slide = li.querySelector(".slide");
+    slide.style.transition = animate ? "" : "none";
+    slide.style.transform = x ? "translateX(" + x + "px)" : "";
+    li.querySelector(".bin").style.transform = x < -REVEAL ? "translateX(" + (x + REVEAL) + "px)" : "";
+  }
+
+  function closeRow(li) {
+    if (!li) return;
+    li.classList.remove("open", "commit");
+    setX(li, 0, true);
+    if (openLi === li) openLi = null;
+  }
+
+  list.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const li = e.target.closest("li[data-id]");
+    suppressClick = false;
+    if (openLi && openLi !== li) {
+      closeRow(openLi); // a tap elsewhere closes the open row and does nothing else
+      suppressClick = true;
+    }
+    if (!li || li.classList.contains("collapse") || e.clientX < EDGE) return;
+    drag = { id: e.pointerId, li, x0: e.clientX, y0: e.clientY, lock: null, wasOpen: li === openLi, x: 0, opened: false, committed: false };
+  });
+
+  list.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x0;
+    const dy = e.clientY - drag.y0;
+    if (drag.lock === null) {
+      if (Math.abs(dx) >= LOCK && Math.abs(dx) > 1.73 * Math.abs(dy)) {
+        drag.lock = "h";
+        drag.li.classList.add("swiping");
+        drag.li.setPointerCapture(e.pointerId);
+      } else if (Math.abs(dy) >= LOCK) drag.lock = "v";
+    }
+    if (drag.lock !== "h") return;
+    const width = drag.li.offsetWidth;
+    const x = Math.max(-width, Math.min(0, (drag.wasOpen ? -REVEAL : 0) + dx));
+    drag.x = x;
+    setX(drag.li, x, false);
+    const opened = x <= -OPEN_AT;
+    if (opened && !drag.opened) haptic("select");
+    drag.opened = opened;
+    const committed = -x >= COMMIT * width;
+    if (committed !== drag.committed) {
+      haptic(committed ? "medium" : "select");
+      drag.li.classList.toggle("commit", committed);
+    }
+    drag.committed = committed;
+  });
+
+  function endDrag(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    const task = tasks.find((t) => t.id === d.li.dataset.id);
+    if (d.lock === "h") {
+      suppressClick = true;
+      d.li.classList.remove("swiping");
+      if (d.committed && task) act("never", task, d.li);
+      else if (d.x <= -OPEN_AT) {
+        d.li.classList.add("open");
+        setX(d.li, -REVEAL, true);
+        openLi = d.li;
+      } else closeRow(d.li);
+    } else if (d.lock === null && d.wasOpen) {
+      suppressClick = true; // a tap on an open row: the bin deletes, anything else closes
+      if (e.target.closest(".binbg") && task) act("never", task, d.li);
+      else closeRow(d.li);
+    } else if (d.lock === "v") closeRow(d.li);
+  }
+  list.addEventListener("pointerup", endDrag);
+  list.addEventListener("pointercancel", endDrag);
+  list.addEventListener("click", (e) => {
+    if (!suppressClick) return;
+    e.stopPropagation();
+    e.preventDefault();
+    suppressClick = false;
+  }, true);
+  addEventListener("scroll", () => closeRow(openLi), { passive: true });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) closeRow(openLi); });
+
+  // The first time: the top row shows its bin for a moment, so the gesture can be found.
+  function peek() {
+    const li = list.querySelector("li[data-id]");
+    if (!li || MS === 0) return;
+    const slide = li.querySelector(".slide");
+    li.classList.add("swiping");
+    slide.style.transition = "transform 250ms ease-in-out";
+    slide.style.transform = "translateX(-48px)";
+    setTimeout(() => {
+      slide.style.transform = "";
+      setTimeout(() => { slide.style.transition = ""; li.classList.remove("swiping"); }, 250);
+    }, 850);
+  }
+
+  function peekOnce() {
+    const store = tg.CloudStorage;
+    if (!store || !tg.isVersionAtLeast("6.9")) return;
+    store.getItem("swipeHint", (err, value) => {
+      if (err || value) return;
+      setTimeout(() => {
+        if (!list.querySelector("li[data-id]")) return;
+        peek();
+        store.setItem("swipeHint", "1", () => {});
+      }, 700);
+    });
+  }
 
   undoBtn.addEventListener("click", async () => {
     const u = undo;
@@ -556,9 +736,11 @@
     try {
       const answer = await send({ action: "list" });
       clearTimeout(slow);
+      const first = !loaded;
       loaded = true;
       if (busy === 0) { tasks = answer.tasks; render(); }
       if (bannerRetry) hideBanner();
+      if (first) peekOnce();
     } catch (e) {
       clearTimeout(slow);
       if (e && e.status === 401) showBanner("Session expired. Reopen the app.", { sticky: true });
@@ -574,6 +756,9 @@
     tg.expand();
     tg.setHeaderColor("secondary_bg_color");
     tg.setBackgroundColor("secondary_bg_color");
+    const applyScheme = () => { document.documentElement.dataset.scheme = tg.colorScheme; };
+    applyScheme();
+    tg.onEvent("themeChanged", applyScheme);
     if (tg.isVersionAtLeast("7.7")) tg.disableVerticalSwipes();
     tg.MainButton.onClick(add);
     render();
