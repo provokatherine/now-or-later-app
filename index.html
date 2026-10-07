@@ -90,17 +90,21 @@
     overflow: hidden;
     background: var(--card);
     touch-action: pan-y;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     transition: max-height var(--ms) ease-out, opacity var(--ms) ease-out, transform var(--ms) ease-out;
   }
+  li.lifting { z-index: 1; transition: none; box-shadow: 0 2px 10px rgba(0, 0, 0, .3); }
   li + li { border-top: 1px solid var(--sep); }
   li.collapse { max-height: 0 !important; opacity: 0; border-top-color: transparent; }
   li.flash { animation: flash 1s ease-out; }
   @keyframes flash { from { background: var(--bg); } to { background: var(--card); } }
-  li.now { background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
-  [data-scheme="dark"] li.now { background: color-mix(in srgb, var(--accent) 16%, var(--card)); }
+  li.now { background: var(--text); color: var(--card); }
+  li.now.flash { animation: none; }
   li.now.arrive { animation: arrive var(--ms) ease-out var(--ms) both; }
-  @keyframes arrive { from { background: var(--card); } }
-  li.now .box { border: 2px solid var(--accent); }
+  @keyframes arrive { from { background: var(--card); color: var(--text); } }
+  li.now button[data-action="later"] { color: color-mix(in srgb, var(--card) 62%, var(--text)); }
   .slide {
     position: relative;
     display: flex;
@@ -143,7 +147,6 @@
   .box::before { content: ""; position: absolute; inset: -11px; }
   li.checked .box { background: var(--accent); border-color: var(--accent); color: #fff; }
   .body { flex: 1 1 0; min-width: 0; padding: 10px 0; }
-  .body.pick { cursor: pointer; }
   .was { display: block; font-size: 13px; color: var(--hint); margin-top: 2px; }
   .was button { font-size: 13px; padding: 0 0 0 4px; min-height: 0; }
   button {
@@ -211,6 +214,7 @@
   const api = "https://yonytrycngydbxxnblqv.supabase.co/functions/v1/today-bot/app/api";
   const MS = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200;
   const HOLD = 300; // the filled checkbox stays this long before a done row goes (fixed, a second tap cancels)
+  const LIFT = 300; // a press on a Today row held this long lifts it for reordering
   // Swipe to delete
   const REVEAL = 80; // px of bin shown by an open row
   const OPEN_AT = 40; // px of drag that opens the row on release
@@ -342,7 +346,7 @@
     return buttons.querySelector('[data-action="' + action + '"]').cloneNode(true);
   }
 
-  function row(task, actions, now, pick) {
+  function row(task, actions, now) {
     const li = document.createElement("li");
     li.dataset.id = task.id;
     if (now) {
@@ -360,8 +364,7 @@
     box.textContent = "✓";
     slide.append(box);
     const body = document.createElement("span");
-    body.className = pick ? "body pick" : "body";
-    body.dataset.action = pick ? "first" : "";
+    body.className = "body";
     body.textContent = task.description;
     const old = reworded.get(task.id);
     if (old !== undefined) {
@@ -385,7 +388,8 @@
     count.textContent = loaded ? String(items.length) : "";
     h2.append(title, count);
     const ul = document.createElement("ul");
-    items.forEach((t, i) => ul.append(row(t, actions, ordered && i === 0, ordered && i !== 0)));
+    if (ordered) ul.className = "ordered";
+    items.forEach((t, i) => ul.append(row(t, actions, ordered && i === 0)));
     section.append(h2);
     if (items.length > 0) section.append(ul);
     return section;
@@ -455,11 +459,6 @@
     return orders.length ? Math.max(...orders) + 1 : 1;
   }
 
-  function firstOrder() {
-    const orders = tasks.filter((t) => t.todayOrder !== null).map((t) => t.todayOrder);
-    return orders.length ? Math.min(...orders) - 1 : 0;
-  }
-
   function patch(id, change) {
     tasks = tasks.map((t) => (t.id === id ? { ...t, ...change } : t));
   }
@@ -496,16 +495,15 @@
       await collapse(li);
       patch(task.id, { status: "today", todayOrder: nextOrder() });
       body = { action: "move", id: task.id, to: "today" };
-    } else if (action === "first") {
-      haptic("select");
-      patch(task.id, { todayOrder: firstOrder() });
-      body = { action: "first", id: task.id };
     } else return;
-    if (action === "first") renderMoved();
-    else render();
+    render();
     if (action === "never") showToast("Deleted", true);
     if (action === "later") bump("Inbox");
     if (action === "today") { bump("Today"); flash(task.id, false); }
+    await save(body);
+  }
+
+  async function save(body) {
     try {
       const answer = await send(body);
       if (busy === 0) { tasks = answer.tasks; render(); }
@@ -541,12 +539,16 @@
     else act(el.dataset.action, task, li);
   });
 
-  // --- Swipe to delete ------------------------------------------------------------
+  // --- Swipe to delete, drag to reorder --------------------------------------------
   // A drag to the left on a row reveals the bin; a tap on it deletes. A drag past COMMIT
   // of the row width deletes on release. The first LOCK px decide: a swipe within 30° of
   // horizontal, otherwise the page scrolls. A swipe is never a tap.
+  // A press on a Today row held for LIFT ms without moving lifts the row (lock "r"); a drag
+  // up or down then moves it among the Today rows and release saves the order. Whichever
+  // row lands first is the main task.
 
-  let drag = null; // { id, li, x0, y0, lock, wasOpen, x, opened, committed }
+  let drag = null; // { id, li, x0, y0, lock, wasOpen, x, opened, committed, rows, from, to, h, tops }
+  let liftTimer = null;
   let openLi = null; // the row showing its bin, at most one
   let suppressClick = false;
 
@@ -574,10 +576,63 @@
     }
     if (!li || li.classList.contains("collapse") || e.clientX < EDGE) return;
     drag = { id: e.pointerId, li, x0: e.clientX, y0: e.clientY, lock: null, wasOpen: li === openLi, x: 0, opened: false, committed: false };
+    const ul = li.parentElement;
+    if (!drag.wasOpen && ul.classList.contains("ordered") && ul.children.length > 1) liftTimer = setTimeout(lift, LIFT);
   });
+
+  function cancelLift() {
+    clearTimeout(liftTimer);
+    liftTimer = null;
+  }
+
+  function lift() {
+    liftTimer = null;
+    if (!drag || drag.lock !== null) return;
+    const d = drag;
+    d.rows = [...d.li.parentElement.children];
+    d.from = d.to = d.rows.indexOf(d.li);
+    d.h = d.li.offsetHeight;
+    d.tops = d.rows.map((r) => r.getBoundingClientRect().top);
+    d.lock = "r";
+    d.li.classList.add("lifting");
+    try { d.li.setPointerCapture(d.id); } catch (_) { /* the pointer is gone */ }
+    suppressClick = true;
+    haptic("medium");
+  }
+
+  function moveLifted(e) {
+    const d = drag;
+    const dy = e.clientY - d.y0;
+    d.li.style.transform = "translateY(" + dy + "px)";
+    const mid = d.tops[d.from] + dy + d.h / 2;
+    let to = 0;
+    d.rows.forEach((r, i) => { if (i !== d.from && d.tops[i] + r.offsetHeight / 2 < mid) to++; });
+    if (to === d.to) return;
+    d.to = to;
+    haptic("select");
+    d.rows.forEach((r, i) => {
+      if (i === d.from) return;
+      const y = i > d.from && i <= to ? -d.h : i < d.from && i >= to ? d.h : 0;
+      r.style.transform = y ? "translateY(" + y + "px)" : "";
+    });
+  }
+
+  function dropLifted(d, to) {
+    d.li.classList.remove("lifting");
+    if (to === d.from) {
+      d.rows.forEach((r) => { r.style.transform = ""; });
+      return;
+    }
+    const ids = d.rows.map((r) => r.dataset.id);
+    ids.splice(to, 0, ids.splice(d.from, 1)[0]);
+    ids.forEach((id, i) => patch(id, { todayOrder: i + 1 }));
+    renderMoved();
+    save({ action: "reorder", ids });
+  }
 
   list.addEventListener("pointermove", (e) => {
     if (!drag || e.pointerId !== drag.id) return;
+    if (drag.lock === "r") return moveLifted(e);
     const dx = e.clientX - drag.x0;
     const dy = e.clientY - drag.y0;
     if (drag.lock === null) {
@@ -586,6 +641,7 @@
         drag.li.classList.add("swiping");
         drag.li.setPointerCapture(e.pointerId);
       } else if (Math.abs(dy) >= LOCK) drag.lock = "v";
+      if (drag.lock !== null) cancelLift();
     }
     if (drag.lock !== "h") return;
     const width = drag.li.offsetWidth;
@@ -605,10 +661,12 @@
 
   function endDrag(e) {
     if (!drag || e.pointerId !== drag.id) return;
+    cancelLift();
     const d = drag;
     drag = null;
     const task = tasks.find((t) => t.id === d.li.dataset.id);
-    if (d.lock === "h") {
+    if (d.lock === "r") dropLifted(d, e.type === "pointercancel" ? d.from : d.to);
+    else if (d.lock === "h") {
       suppressClick = true;
       d.li.classList.remove("swiping");
       if (d.committed && task) act("never", task, d.li);
@@ -625,6 +683,8 @@
   }
   list.addEventListener("pointerup", endDrag);
   list.addEventListener("pointercancel", endDrag);
+  list.addEventListener("touchmove", (e) => { if (drag && drag.lock === "r") e.preventDefault(); }, { passive: false });
+  list.addEventListener("contextmenu", (e) => { if (drag) e.preventDefault(); });
   list.addEventListener("click", (e) => {
     if (!suppressClick) return;
     e.stopPropagation();
@@ -756,9 +816,6 @@
     tg.expand();
     tg.setHeaderColor("secondary_bg_color");
     tg.setBackgroundColor("secondary_bg_color");
-    const applyScheme = () => { document.documentElement.dataset.scheme = tg.colorScheme; };
-    applyScheme();
-    tg.onEvent("themeChanged", applyScheme);
     if (tg.isVersionAtLeast("7.7")) tg.disableVerticalSwipes();
     tg.MainButton.onClick(add);
     render();
