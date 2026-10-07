@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Inbox</title>
+<link rel="preconnect" href="https://yonytrycngydbxxnblqv.supabase.co">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
     --bg: var(--tg-theme-secondary-bg-color, #efeff4);
     --card: var(--tg-theme-section-bg-color, #fff);
     --sep: var(--tg-theme-section-separator-color, rgba(0, 0, 0, .1));
+    --sep-soft: color-mix(in srgb, var(--sep) 45%, transparent);
     --text: var(--tg-theme-text-color, #000);
     --hint: var(--tg-theme-hint-color, #8e8e93);
     --accent: var(--tg-theme-button-color, #2481cc);
@@ -24,9 +26,9 @@
   html, body { background: var(--bg); }
   body {
     margin: 0;
-    padding: 0 16px calc(96px + var(--safe-bottom));
+    padding: 0 0 calc(96px + var(--safe-bottom));
     color: var(--text);
-    font: 17px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 17px/24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     overflow-wrap: anywhere;
     overflow-x: hidden;
     overscroll-behavior-x: none;
@@ -35,7 +37,6 @@
     position: sticky;
     top: 0;
     z-index: 3;
-    margin: 0 -16px;
     padding: 10px 16px;
     background: var(--card);
     color: var(--text);
@@ -43,13 +44,16 @@
   }
   #banner[hidden] { display: none; }
   .add {
-    position: sticky;
-    top: 0;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 2;
-    margin: 0 -16px;
-    padding: 8px 16px;
+    padding: 8px 16px calc(8px + var(--safe-bottom));
     background: var(--bg);
+    border-top: 1px solid var(--sep-soft);
   }
+  .add[hidden] { display: none; }
   textarea {
     display: block;
     width: 100%;
@@ -67,13 +71,14 @@
   }
   textarea::placeholder { color: var(--hint); }
   h2 {
-    margin: 16px 16px 6px;
+    margin: 28px 16px 8px;
     font-size: 13px;
     font-weight: 400;
     text-transform: uppercase;
     letter-spacing: .02em;
     color: var(--head);
   }
+  section:first-child h2 { margin-top: 20px; }
   h2 .count { display: inline-block; color: var(--hint); margin-left: 6px; }
   .count.bump { animation: bump 300ms ease-out; }
   @keyframes bump { 40% { transform: scale(1.2); color: var(--accent); } }
@@ -82,8 +87,6 @@
     margin: 0;
     padding: 0;
     background: var(--card);
-    border-radius: 12px;
-    overflow: hidden;
   }
   li {
     position: relative;
@@ -96,7 +99,7 @@
     transition: max-height var(--ms) ease-out, opacity var(--ms) ease-out, transform var(--ms) ease-out;
   }
   li.lifting { z-index: 1; transition: none; box-shadow: 0 2px 10px rgba(0, 0, 0, .3); }
-  li + li { border-top: 1px solid var(--sep); }
+  li + li { border-top: 1px solid var(--sep-soft); }
   li.collapse { max-height: 0 !important; opacity: 0; border-top-color: transparent; }
   li.flash { animation: flash 1s ease-out; }
   @keyframes flash { from { background: var(--bg); } to { background: var(--card); } }
@@ -109,9 +112,9 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    padding: 0 4px 0 12px;
+    gap: 12px;
+    min-height: 52px;
+    padding: 0 6px 0 16px;
     background: inherit;
     transition: transform var(--ms) cubic-bezier(.2, .8, .2, 1);
   }
@@ -134,7 +137,7 @@
     width: 22px;
     height: 22px;
     min-height: 0;
-    margin: 11px 0;
+    margin: 15px 0;
     padding: 0;
     border: 1.5px solid var(--hint);
     border-radius: 50%;
@@ -146,13 +149,13 @@
   }
   .box::before { content: ""; position: absolute; inset: -11px; }
   li.checked .box { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .body { flex: 1 1 0; min-width: 0; padding: 10px 0; }
+  .body { flex: 1 1 0; min-width: 0; padding: 14px 0; }
   .was { display: block; font-size: 13px; color: var(--hint); margin-top: 2px; }
   .was button { font-size: 13px; padding: 0 0 0 4px; min-height: 0; }
   button {
     font: inherit;
     font-size: 15px;
-    min-height: 44px;
+    min-height: 52px;
     padding: 0 10px;
     border: 0;
     border-radius: 8px;
@@ -162,7 +165,7 @@
   button:active { opacity: .5; }
   button:disabled { opacity: .4; }
   button[data-action="later"] { color: color-mix(in srgb, var(--text) 62%, var(--card)); }
-  .empty, .outside { color: var(--hint); padding: 12px 16px; margin: 0; }
+  .empty, .outside { color: var(--hint); padding: 14px 16px; margin: 0; }
   .outside { padding-top: 24px; }
   #toast {
     position: fixed;
@@ -193,8 +196,8 @@
 </head>
 <body>
 <div id="banner" hidden></div>
-<div class="add" id="add"><textarea id="field" rows="1" placeholder="Add tasks, one per line" enterkeyhint="enter" autocomplete="off"></textarea></div>
 <main id="list"></main>
+<div class="add" id="add" hidden><textarea id="field" rows="1" placeholder="Add tasks, one per line" enterkeyhint="enter" autocomplete="off"></textarea></div>
 <div id="toast" hidden><span class="msg" id="msg"></span><button id="undo" type="button"><svg class="ring" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7"></circle></svg>Undo</button></div>
 <template id="buttons"><button data-action="today">Today</button><button data-action="later">Later</button><button class="sr" data-action="never">Delete</button><button data-action="not_same">Not the same</button></template>
 <template id="bintpl"><div class="binbg" aria-hidden="true"><svg class="bin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></div></template>
@@ -212,6 +215,7 @@
   const bintpl = document.getElementById("bintpl").content;
   // Filled by renderPage: the function's API, absolute when the page is hosted elsewhere.
   const api = "https://yonytrycngydbxxnblqv.supabase.co/functions/v1/today-bot/app/api";
+  const CACHE = "tasks:" + (tg?.initDataUnsafe?.user?.id ?? ""); // the last list, shown at once on the next open
   const MS = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200;
   const HOLD = 300; // the filled checkbox stays this long before a done row goes (fixed, a second tap cancels)
   const LIFT = 300; // a press on a Today row held this long lifts it for reordering
@@ -249,8 +253,35 @@
 
   function updateMainButton() {
     const n = lineCount();
-    if (n === 0) tg.MainButton.hide();
+    if (addBox.hidden) tg.MainButton.setParams({ text: "Add", is_visible: true });
+    else if (n === 0) tg.MainButton.hide();
     else tg.MainButton.setParams({ text: n === 1 ? "Add" : "Add " + n, is_visible: true });
+  }
+
+  function openComposer() {
+    addBox.hidden = false;
+    updateMainButton();
+    field.focus();
+  }
+
+  function closeComposer() {
+    addBox.hidden = true;
+    updateMainButton();
+  }
+
+  // --- Cache --------------------------------------------------------------------
+
+  function remember(list) {
+    try { localStorage.setItem(CACHE, JSON.stringify(list)); } catch (_) { /* private mode: no cache */ }
+  }
+
+  function recall() {
+    try {
+      const list = JSON.parse(localStorage.getItem(CACHE));
+      return Array.isArray(list) ? list : [];
+    } catch (_) {
+      return [];
+    }
   }
 
   // --- Network ----------------------------------------------------------------
@@ -260,6 +291,7 @@
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ initData, ...body }),
+      keepalive: true, // a tap's request completes even if the app closes right after
     });
     if (!res.ok) {
       const e = new Error("HTTP " + res.status);
@@ -273,12 +305,11 @@
   // so an optimistic change is never overwritten by an older answer.
   function send(body) {
     busy++;
-    tg?.enableClosingConfirmation();
     const run = queue.then(() => post(body));
     queue = run.catch(() => {});
+    run.then((answer) => { if (Array.isArray(answer?.tasks)) remember(answer.tasks); }, () => {});
     return run.finally(() => {
       busy--;
-      if (busy === 0) tg?.disableClosingConfirmation();
     });
   }
 
@@ -436,6 +467,7 @@
   // Re-renders and slides the Today rows that changed place (FLIP).
   function renderMoved() {
     const before = new Map([...list.querySelectorAll("li[data-id]")].map((li) => [li.dataset.id, li.getBoundingClientRect().top]));
+    const wasFirst = list.querySelector("li.now")?.dataset.id;
     render();
     if (MS === 0) return;
     for (const li of list.querySelectorAll("li[data-id]")) {
@@ -449,7 +481,8 @@
       li.style.transition = "";
       li.style.transform = "";
     }
-    list.querySelector("li.now")?.classList.add("arrive");
+    const now = list.querySelector("li.now");
+    if (now && now.dataset.id !== wasFirst) now.classList.add("arrive");
   }
 
   // --- Actions ------------------------------------------------------------------
@@ -764,6 +797,7 @@
       field.value = "";
       field.style.height = "";
       field.blur();
+      closeComposer();
       tasks = answer.tasks;
       for (const r of answer.results) if (r.outcome === "reworded") reworded.set(r.id, r.prevDescription);
       render();
@@ -786,12 +820,13 @@
     field.style.height = field.scrollHeight + "px";
     updateMainButton();
   });
+  field.addEventListener("blur", () => { if (lineCount() === 0) closeComposer(); });
 
   // --- Load ---------------------------------------------------------------------
 
   async function load() {
     const slow = setTimeout(() => {
-      if (!loaded) list.append(Object.assign(document.createElement("p"), { className: "empty", textContent: "Loading…" }));
+      if (!loaded && tasks.length === 0) list.append(Object.assign(document.createElement("p"), { className: "empty", textContent: "Loading…" }));
     }, 800);
     try {
       const answer = await send({ action: "list" });
@@ -817,8 +852,10 @@
     tg.setHeaderColor("secondary_bg_color");
     tg.setBackgroundColor("secondary_bg_color");
     if (tg.isVersionAtLeast("7.7")) tg.disableVerticalSwipes();
-    tg.MainButton.onClick(add);
+    tg.MainButton.onClick(() => addBox.hidden ? openComposer() : add());
+    tasks = recall();
     render();
+    updateMainButton();
     load();
   }
 </script>
